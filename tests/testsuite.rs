@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 extern crate log;
 extern crate env_logger;
 
-const BROKER_ADDRESS: &'static str = "localhost:1883";
+const BROKER_ADDRESS: &'static str = "toggleme.in:1883";
 
 /// Shouldn't try to reconnect if there is a connection problem
 /// during initial tcp connect.
@@ -311,6 +311,7 @@ fn qos1_stress_publish_with_reconnections() {
                                     .set_keep_alive(5)
                                     .set_reconnect(3)
                                     .set_client_id("qos1-stress-reconnect-publish")
+                                    .set_clean_session(false)
                                     .set_pub_q_len(50)
                                     .broker(BROKER_ADDRESS);
 
@@ -370,6 +371,7 @@ fn qos2_stress_publish_with_reconnections() {
     let client_options = MqttOptions::new()
                                     .set_keep_alive(5)
                                     .set_reconnect(3)
+                                    .set_clean_session(false)
                                     .set_client_id("qos2-stress-reconnect-publish")
                                     .broker(BROKER_ADDRESS);
 
@@ -382,15 +384,15 @@ fn qos2_stress_publish_with_reconnections() {
         // println!("{}. message --> {:?}", count.load(Ordering::SeqCst), message);
     }).start().expect("Coudn't start");
     
-    for i in 0..10{
+    for i in 0..1000 {
         let payload = format!("{}. hello rust", i);
-        if i == 5 {
+        if i == 100 || i == 500 || i == 900 {
             let _ = request.disconnect();
         }
         request.publish("test/qos2/reconnection_stress",  QoS::Level2, payload.clone().into_bytes()).unwrap();
     }
 
-    thread::sleep(Duration::new(10, 0));
+    thread::sleep(Duration::new(30, 0));
     println!("QoS2 Final Count = {:?}", final_count.load(Ordering::SeqCst));
-    assert!(10 == final_count.load(Ordering::SeqCst));
+    assert!(1000 == final_count.load(Ordering::SeqCst));
 }

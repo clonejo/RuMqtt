@@ -610,14 +610,11 @@ impl Connection {
         Ok(())
     }
 
-    // Spec says that client (for QoS > 0, clean session) should retransmit all the
-    // unacked messages after reconnection. Instead of waiting for retransmit
-    // timeout
-    // to kickin, this methods retransmits everthing in the queue immediately
-    // NOTE: outgoing_rels are handled in _try_retransmit. Sending duplicate pubrels
-    // isn't a problem (I guess ?). Broker will just resend pubcomps
+    // Spec says that client (for QoS > 0, persistant session [clean session = 0]) 
+    // should retransmit all the unacked publishes and pubrels after reconnection. 
+    // NOTE: Sending duplicate pubrels isn't a problem (I guess ?). Broker will just resend pubcomps
     fn _force_retransmit(&mut self) {
-        if self.opts.clean_session {
+        if !self.opts.clean_session {
             // Cloning because iterating and removing isn't possible.
             // Iterating over indexes and and removing elements messes
             // up the remove sequence
@@ -745,6 +742,14 @@ impl Connection {
     fn _unbind(&mut self) {
         let _ = self.stream.shutdown(Shutdown::Both);
         self.state = MqttState::Disconnected;
+
+        // remove all the state
+        if self.opts.clean_session {
+            self.outgoing_pub.clear();
+            self.outgoing_rec.clear();
+            self.outgoing_rel.clear();
+            self.outgoing_comp.clear();
+        }
         info!("  Disconnected {:?}", self.opts.client_id);
     }
 
