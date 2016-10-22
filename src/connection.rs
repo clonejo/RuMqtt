@@ -25,7 +25,6 @@ use message::Message;
 static mut N: i32 = 0;
 
 enum HandlePacket {
-
     Publish(Box<Message>),
     PubAck(Option<Message>),
     PubRec(Option<Message>),
@@ -278,8 +277,7 @@ impl Connection {
 
     fn _try_reconnect(&mut self) -> Result<()> {
         match self.opts.reconnect {
-            // TODO: Implement
-            None => panic!("To be implemented"),
+            None => unimplemented!(),
             Some(dur) => {
                 if !self.initial_connect {
                     error!("  Will try Reconnect in {} seconds", dur);
@@ -457,11 +455,21 @@ impl Connection {
                     // @ Send 'pubrel' to broker
                     VariablePacket::PubrecPacket(ref pubrec) => {
                         let pkid = pubrec.packet_identifier();
+                        // println!("{:?}", pkid);
+                        // println!("{:?}", self.outgoing_rec.iter().map(|e|
+                        // e.1.qos).collect::<Vec<_>>());
                         let m = match self.outgoing_rec
                             .iter()
                             .position(|ref x| x.1.get_pkid() == Some(pkid)) {
                             Some(i) => {
                                 if let Some(m) = self.outgoing_rec.remove(i) {
+                                    // After receiving PUBREC packet and removing corrosponding
+                                    // message from outgoing_rec queue, send PUBREL and add it queue.
+                                    self.outgoing_rel.push_back((time::get_time().sec, PacketIdentifier(pkid)));
+                                    // NOTE: Don't Error return here. It's ok to fail during writes coz of
+                                    // disconnection.
+                                    // `force_transmit` will resend when reconnection is successful
+                                    let _ = self._pubrel(pkid);
                                     Some(*m.1)
                                 } else {
                                     None
@@ -473,12 +481,7 @@ impl Connection {
                             }
                         };
 
-                        // After receiving PUBREC packet and removing corrosponding
-                        // message from outgoing_rec queue, send PUBREL and add it queue.
-                        self.outgoing_rel.push_back((time::get_time().sec, PacketIdentifier(pkid)));
-                        // NOTE: Don't Error return here. It's ok to fail during writes coz of disconnection.
-                        // `force_transmit` will resend when reconnection is successful
-                        let _ = self._pubrel(pkid);
+
                         Ok(HandlePacket::PubRec(m))
                     }
 
@@ -494,6 +497,8 @@ impl Connection {
                             .position(|ref x| x.get_pkid() == Some(pkid)) {
                             Some(i) => {
                                 if let Some(message) = self.incoming_rec.remove(i) {
+                                    self.outgoing_comp.push_back((time::get_time().sec, PacketIdentifier(pkid)));
+                                    let _ = self._pubcomp(pkid);
                                     Some(message)
                                 } else {
                                     None
@@ -505,8 +510,6 @@ impl Connection {
                             }
                         };
 
-                        self.outgoing_comp.push_back((time::get_time().sec, PacketIdentifier(pkid)));
-                        let _ = self._pubcomp(pkid);
 
                         if let Some(message) = message {
                             Ok(HandlePacket::Publish(message))
@@ -610,9 +613,10 @@ impl Connection {
         Ok(())
     }
 
-    // Spec says that client (for QoS > 0, persistant session [clean session = 0]) 
-    // should retransmit all the unacked publishes and pubrels after reconnection. 
-    // NOTE: Sending duplicate pubrels isn't a problem (I guess ?). Broker will just resend pubcomps
+    // Spec says that client (for QoS > 0, persistant session [clean session = 0])
+    // should retransmit all the unacked publishes and pubrels after reconnection.
+    // NOTE: Sending duplicate pubrels isn't a problem (I guess ?). Broker will
+    // just resend pubcomps
     fn _force_retransmit(&mut self) {
         if !self.opts.clean_session {
             // Cloning because iterating and removing isn't possible.
@@ -629,21 +633,14 @@ impl Connection {
             while let Some(message) = outgoing_rec.pop_front() {
                 let _ = self._publish(*message.1);
             }
-
+            // println!("{:?}", self.outgoing_rec.iter().map(|e|
+            // e.1.qos).collect::<Vec<_>>());
             let mut outgoing_rel = self.outgoing_rel.clone();
             self.outgoing_rel.clear();
             while let Some(rel) = outgoing_rel.pop_front() {
                 self.outgoing_rel.push_back((time::get_time().sec, rel.1));
                 let PacketIdentifier(pkid) = rel.1;
                 let _ = self._pubrel(pkid);
-            }
-
-            let mut outgoing_comp = self.outgoing_comp.clone();
-            self.outgoing_comp.clear();
-            while let Some(comp) = outgoing_comp.pop_front() {
-                self.outgoing_comp.push_back((time::get_time().sec, comp.1));
-                let PacketIdentifier(pkid) = comp.1;
-                let _ = self._pubcomp(pkid);
             }
         }
     }
@@ -692,7 +689,7 @@ impl Connection {
         // error!("Queue --> {:?}\n\n", self.outgoing_pub);
         // debug!("       Publish {:?} {:?} > {} bytes", message.qos,
         // topic.clone().to_string(), message.payload.len());
-
+        // println!("{:?}", message.qos);
 
         match message.qos {
             QoSWithPacketIdentifier::Level0 => try!(self._write_packet(publish_packet)),

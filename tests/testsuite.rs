@@ -386,7 +386,7 @@ fn qos2_stress_publish_with_reconnections() {
     
     for i in 0..1000 {
         let payload = format!("{}. hello rust", i);
-        if i == 100 || i == 500 || i == 900 {
+        if i == 40 || i == 500 || i == 900 {
             let _ = request.disconnect();
         }
         request.publish("test/qos2/reconnection_stress",  QoS::Level2, payload.clone().into_bytes()).unwrap();
@@ -396,3 +396,45 @@ fn qos2_stress_publish_with_reconnections() {
     println!("QoS2 Final Count = {:?}", final_count.load(Ordering::SeqCst));
     assert!(1000 == final_count.load(Ordering::SeqCst));
 }
+
+
+// NOTE: POTENTIAL MOSQUITTO BUG
+// client publishing 1..40 and disconnect and 40..46(with errors) before read triggered
+// broker receives 1..40 but sends acks for only 1..20  (don't know why)
+// client reconnects and sends 21..46 again and received pubrecs (qos2 publish queue empty)
+// broker now sends pubrecs from 21..X resulting in unsolicited records
+
+// doesn't seem to be a problem with qos1
+// emqttd doesn't have this issue
+
+// #[test]
+// fn qos2_stress_publish_with_reconnections() {
+//     env_logger::init().unwrap();
+//     let client_options = MqttOptions::new()
+//                                     .set_keep_alive(5)
+//                                     .set_reconnect(3)
+//                                     .set_clean_session(false)
+//                                     .set_client_id("qos2-stress-reconnect-publish")
+//                                     .broker(BROKER_ADDRESS);
+
+//     let count = Arc::new(AtomicUsize::new(0));
+//     let final_count = count.clone();
+//     let count = count.clone();
+
+//     let request = MqttClient::new(client_options).publish_callback(move |message| {
+//         count.fetch_add(1, Ordering::SeqCst);
+//         // println!("{}. message --> {:?}", count.load(Ordering::SeqCst), message);
+//     }).start().expect("Coudn't start");
+    
+//     for i in 0..50 {
+//         let payload = format!("{}. hello rust", i);
+//         if i == 40 || i == 500 || i == 900 {
+//             let _ = request.disconnect();
+//         }
+//         request.publish("test/qos2/reconnection_stress",  QoS::Level2, payload.clone().into_bytes()).unwrap();
+//     }
+
+//     thread::sleep(Duration::new(10, 0));
+//     println!("QoS2 Final Count = {:?}", final_count.load(Ordering::SeqCst));
+//     assert!(50 == final_count.load(Ordering::SeqCst));
+// }
